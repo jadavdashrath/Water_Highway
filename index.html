@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Highway - Water &copy;Jd</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            overscroll-behavior: none;
+            touch-action: none;
+        }
+        canvas { display: block; }
+        
+        #ui-container {
+            position: absolute;
+            top: 15px; left: 15px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            z-index: 50;
+        }
+        #score-val { font-size: 2.5em; font-weight: bold; color: #00f2ff; }
+
+        #game-over-screen {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 20, 40, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            color: white;
+            text-align: center;
+            display: none;
+            z-index: 101;
+            border: 2px solid #00f2ff;
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+        }
+        
+        #final-score { font-size: 2.8em; color: #00f2ff; margin: 15px 0; }
+
+        #restart-button {
+            margin-top: 10px;
+            padding: 12px 35px;
+            font-size: 1.1em;
+            background: #00f2ff;
+            color: #001a22;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .controls-wrapper {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 60;
+        }
+
+        .controls-row {
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 20px;
+            box-sizing: border-box;
+        }
+
+        .btn {
+            width: 80px; height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-size: 1.8em;
+            user-select: none;
+            cursor: pointer;
+        }
+
+        #break-btn {
+            background: rgba(0, 100, 255, 0.5);
+            width: 130px; height: 60px;
+            border-radius: 15px;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        #water-copyright {
+            margin-top: 15px;
+            color: #fff;
+            font-size: 0.9em;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        #loading-screen {
+            position: absolute; width: 100%; height: 100%;
+            background: #b2ebf2; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 200;
+        }
+    </style>
+</head> 
+<body>
+
+    <div id="loading-screen">
+        <h2 style="color: #006064; margin-bottom: 5px;">Loding....</h2>
+        <p style="color: #00838f;">By Jd</p>
+    </div>
+
+    <!-- BACKGROUND MUSIC ELEMENT -->
+    <audio id="bg-music" loop>
+        <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+    </audio>
+
+    <div id="ui-container">
+        <div id="score-val">0</div>
+        <div style="font-size: 0.7em; letter-spacing: 1px;"></div>
+    </div>
+    
+    <div id="game-over-screen">
+        <h1 style="color: #ff3d00; margin: 0; font-size: 3em;">CRASHED</h1>
+        <p>Your Final Score:</p>
+        <div id="final-score">0</div>
+        <button id="restart-button">RETRY</button>
+    </div>
+
+    <div class="controls-wrapper">
+        <div class="controls-row">
+            <div id="right-btn" class="btn">◀</div>
+            <div id="break-btn" class="btn">BREAK</div>
+            <div id="left-btn" class="btn">▶</div>
+
+        </div>
+    </div>
+
+    <div id="container"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+        let scene, camera, renderer, player;
+        let enemies = [], roadLines = [], points = [], decorations = [];
+        let score = 0, isGameOver = false;
+        let moveLeft = false, moveRight = false, isBreaking = false;
+        
+        let currentSpeed = 0.9;
+        const BASE_SPEED = 0.9;
+        const BREAK_SPEED = 0.3;
+        const ROAD_WIDTH = 13;
+        const ROAD_LEN = 600;
+        const DRIFT_PERIOD = 40000; 
+
+        const pBox = new THREE.Box3();
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); 
+            scene.fog = new THREE.Fog(0x87CEEB, 150, 420);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+            const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+            sun.position.set(50, 100, 50);
+            scene.add(sun);
+
+            // Road
+            const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_LEN), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+            road.rotation.x = -Math.PI / 2;
+            scene.add(road);
+
+            const grass = new THREE.Mesh(new THREE.PlaneGeometry(1200, ROAD_LEN), new THREE.MeshStandardMaterial({ color: 0x7cb342 }));
+            grass.rotation.x = -Math.PI / 2;
+            grass.position.y = -0.05;
+            scene.add(grass);
+
+            // Environment
+            for (let i = 0; i < 60; i++) {
+                const line = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+                line.rotation.x = -Math.PI / 2;
+                line.position.set(0, 0.01, (i * 20) - (ROAD_LEN / 2));
+                roadLines.push(line);
+                scene.add(line);
+
+                if (i % 2 === 0) createTree(18, (i * 15) - 300);
+                if (i % 6 === 0) createBuilding(-45, (i * 20) - 300);
+            }
+
+            // Initial points
+            for (let i = 0; i < 8; i++) {
+                createPoint(i);
+            }
+
+            const loader = new GLTFLoader();
+            const dracoLoader = new DRACOLoader();
+            dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+            loader.setDRACOLoader(dracoLoader);
+
+            loader.load('https://threejs.org/examples/models/gltf/ferrari.glb', (gltf) => {
+                player = gltf.scene;
+                player.scale.set(0.85, 0.85, 0.85);
+                player.rotation.y = Math.PI;
+                scene.add(player);
+
+                const colors = [0x00f2ff, 0x0077ff, 0xffffff, 0x00ff88, 0x2233ff];
+                for (let i = 0; i < 5; i++) {
+                    const e = player.clone();
+                    e.traverse(n => { if (n.isMesh) { n.material = n.material.clone(); n.material.color.setHex(colors[i]); }});
+                    e.userData = { offset: Math.random() * Math.PI * 2, box: new THREE.Box3(), speed: 0.4 + (Math.random() * 0.2) };
+                    resetEnemy(e, i);
+                    enemies.push(e);
+                    scene.add(e);
+                }
+                document.getElementById('loading-screen').style.display = 'none';
+            });
+
+            setupControls();
+        }
+
+        function createTree(x, z) {
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 }));
+            const top = new THREE.Mesh(new THREE.SphereGeometry(2.5, 8, 8), new THREE.MeshStandardMaterial({ color: 0x1b5e20 }));
+            top.position.y = 4;
+            tree.add(trunk, top);
+            tree.position.set(x + (Math.random()*15), 0, z);
+            scene.add(tree);
+            decorations.push(tree);
+        }
+
+        function createBuilding(x, z) {
+            const h = 30 + Math.random() * 40;
+            const b = new THREE.Mesh(new THREE.BoxGeometry(18, h, 18), new THREE.MeshStandardMaterial({ color: 0x78909c }));
+            b.position.set(x - (Math.random()*20), h/2, z);
+            scene.add(b);
+            decorations.push(b);
+        }
+
+        function createPoint(i) {
+            const geo = new THREE.IcosahedronGeometry(0.7, 0);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x00f2ff, emissive: 0x00bfff, flatShading: true });
+            const p = new THREE.Mesh(geo, mat);
+            resetPoint(p, i);
+            points.push(p);
+            scene.add(p);
+        }
+
+        function resetPoint(p, i) {
+            const densityFactor = Math.max(15, 80 - (score / 4)); 
+            p.position.z = 300 + (i * densityFactor);
+            p.position.x = (Math.random() - 0.5) * (ROAD_WIDTH - 4);
+            p.position.y = 1.3;
+            p.visible = true;
+        }
+
+        function resetEnemy(e, i) {
+            e.position.z = 250 + (i * 120);
+            e.position.x = (Math.random() - 0.5) * (ROAD_WIDTH - 4);
+        }
+
+        function setupControls() {
+            const bgMusic = document.getElementById('bg-music');
+            const startMusic = () => {
+                if (bgMusic.paused) bgMusic.play().catch(e => console.log("Music wait for interaction"));
+            };
+
+            window.addEventListener('keydown', (e) => {
+                startMusic();
+                if (e.key === "ArrowLeft") moveLeft = true;
+                if (e.key === "ArrowRight") moveRight = true;
+                if (e.key === "ArrowDown") isBreaking = true;
+            });
+            window.addEventListener('keyup', (e) => {
+                if (e.key === "ArrowLeft") moveLeft = false;
+                if (e.key === "ArrowRight") moveRight = false;
+                if (e.key === "ArrowDown") isBreaking = false;
+            });
+
+            const l = document.getElementById('left-btn');
+            const r = document.getElementById('right-btn');
+            const b = document.getElementById('break-btn');
+
+            const tap = (el, start, stop) => {
+                el.addEventListener('touchstart', (e) => { 
+                    e.preventDefault(); 
+                    startMusic();
+                    start(); 
+                });
+                el.addEventListener('touchend', stop);
+                el.addEventListener('mousedown', () => {
+                    startMusic();
+                    start();
+                });
+                el.addEventListener('mouseup', stop);
+            };
+
+            tap(l, () => moveLeft = true, () => moveLeft = false);
+            tap(r, () => moveRight = true, () => moveRight = false);
+            tap(b, () => isBreaking = true, () => isBreaking = false);
+
+            document.getElementById('restart-button').onclick = () => location.reload();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (isGameOver || !player) return;
+
+            const time = performance.now();
+            currentSpeed = THREE.MathUtils.lerp(currentSpeed, isBreaking ? BREAK_SPEED : BASE_SPEED, 0.08);
+
+            roadLines.forEach(l => {
+                l.position.z -= currentSpeed;
+                if (l.position.z < -150) l.position.z += ROAD_LEN;
+            });
+            decorations.forEach(d => {
+                d.position.z -= currentSpeed;
+                if (d.position.z < -300) d.position.z += ROAD_LEN;
+            });
+
+            if (moveLeft && player.position.x > -6) player.position.x -= 0.18;
+            if (moveRight && player.position.x < 6) player.position.x += 0.18;
+            pBox.setFromObject(player);
+
+            camera.position.set(player.position.x * 0.25, 5.5, -13);
+            camera.lookAt(player.position.x, 1, 15);
+
+            points.forEach((p, i) => {
+                p.position.z -= currentSpeed;
+                p.rotation.y += 0.05;
+                p.position.y = 1.3 + Math.sin(time * 0.005) * 0.25;
+
+                if (p.visible) {
+                    const dist = player.position.distanceTo(p.position);
+                    if (dist < 2.8) {
+                        p.visible = false;
+                        score += 5;
+                        document.getElementById('score-val').innerText = score;
+                        if (score % 60 === 0 && points.length < 18) {
+                            createPoint(points.length);
+                        }
+                    }
+                }
+
+                if (p.position.z < -60) resetPoint(p, i);
+            });
+
+            enemies.forEach(e => {
+                e.position.z -= (e.userData.speed + (currentSpeed - BASE_SPEED));
+                const freq = (Math.PI * 2) / DRIFT_PERIOD;
+                e.position.x = Math.sin(time * freq + e.userData.offset) * 5;
+
+                e.userData.box.setFromObject(e);
+                if (pBox.intersectsBox(e.userData.box)) {
+                    isGameOver = true;
+                    document.getElementById('final-score').innerText = score;
+                    document.getElementById('game-over-screen').style.display = 'block';
+                }
+
+                if (e.position.z < -50) resetEnemy(e, 4);
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
